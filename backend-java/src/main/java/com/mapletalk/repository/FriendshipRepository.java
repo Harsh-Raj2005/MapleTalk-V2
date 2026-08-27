@@ -22,4 +22,10 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 			+ "or (f.userA.id = :secondId and f.userB.id = :firstId)")
 	boolean existsBetweenUsers(@Param("firstId") Long firstId, @Param("secondId") Long secondId);
 
+	// All friendship rows involving a single given user, regardless of which
+	// side of the canonical pair they're on. findByUserAIdOrUserBId doesn't
+	// fit this: it takes two independent ids, not "either column = this id".
+	@Query("select f from Friendship f where f.userA.id = :userId or f.userB.id = :userId")
+	List<Friendship> findAllInvolvingUser(@Param("userId") Long userId);
+
 }

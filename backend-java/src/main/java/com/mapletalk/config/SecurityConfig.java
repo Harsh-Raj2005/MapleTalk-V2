@@ -31,6 +31,9 @@ public class SecurityConfig {
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers("/api/health").permitAll()
+						// Signup/login must be reachable without a JWT — there is no
+						// token to present until one of these succeeds.
+						.requestMatchers("/api/auth/signup", "/api/auth/login").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(exceptions -> exceptions
 						// Without this, Spring Security's default entry point returns 403
