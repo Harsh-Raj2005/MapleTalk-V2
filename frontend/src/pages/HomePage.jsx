@@ -1,52 +1,41 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import {
-  getOutgoingFriendReqs,
-  getRecommendedUsers,
-  getUserFriends,
-  sendFriendRequest,
-} from "../lib/api";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { getRecommendedUsers, sendFriendRequest } from "../lib/api";
 import { Link } from "react-router";
 import { CheckCircleIcon, MapPinIcon, UserPlusIcon, UsersIcon } from "lucide-react";
+import toast from "react-hot-toast";
 
 import { capitialize } from "../lib/utils";
 
-import FriendCard, { getLanguageFlag } from "../components/FriendCard";
-import NoFriendsFound from "../components/NoFriendsFound";
+import { getLanguageFlag } from "../components/FriendCard";
+import FriendsList from "../components/FriendsList";
 
 const HomePage = () => {
-  const queryClient = useQueryClient();
-  const [outgoingRequestsIds, setOutgoingRequestsIds] = useState(new Set());
-
-  const { data: friends = [], isLoading: loadingFriends } = useQuery({
-    queryKey: ["friends"],
-    queryFn: getUserFriends,
-  });
+  // V2 has no "my outgoing requests" query, so a sent request is tracked
+  // locally for this session; the backend still rejects real duplicates
+  // (409) regardless, so this is a UX nicety, not the source of truth.
+  const [sentRequestIds, setSentRequestIds] = useState(new Set());
 
   const { data: recommendedUsers = [], isLoading: loadingUsers } = useQuery({
     queryKey: ["users"],
     queryFn: getRecommendedUsers,
   });
 
-  const { data: outgoingFriendReqs } = useQuery({
-    queryKey: ["outgoingFriendReqs"],
-    queryFn: getOutgoingFriendReqs,
-  });
-
   const { mutate: sendRequestMutation, isPending } = useMutation({
     mutationFn: sendFriendRequest,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["outgoingFriendReqs"] }),
+    onSuccess: (_data, userId) => {
+      setSentRequestIds((prev) => new Set(prev).add(userId));
+    },
+    onError: (error, userId) => {
+      // A 409 here means a pending request already exists in some
+      // direction (or they're already friends) — either way, the button
+      // should stop offering to send again.
+      if (error.response?.status === 409) {
+        setSentRequestIds((prev) => new Set(prev).add(userId));
+      }
+      toast.error(error.response?.data?.message || "Could not send friend request");
+    },
   });
-
-  useEffect(() => {
-    const outgoingIds = new Set();
-    if (outgoingFriendReqs && outgoingFriendReqs.length > 0) {
-      outgoingFriendReqs.forEach((req) => {
-        outgoingIds.add(req.recipient._id);
-      });
-      setOutgoingRequestsIds(outgoingIds);
-    }
-  }, [outgoingFriendReqs]);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -59,19 +48,7 @@ const HomePage = () => {
           </Link>
         </div>
 
-        {loadingFriends ? (
-          <div className="flex justify-center py-12">
-            <span className="loading loading-spinner loading-lg" />
-          </div>
-        ) : friends.length === 0 ? (
-          <NoFriendsFound />
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {friends.map((friend) => (
-              <FriendCard key={friend._id} friend={friend} />
-            ))}
-          </div>
-        )}
+        <FriendsList />
 
         <section>
           <div className="mb-6 sm:mb-8">
@@ -99,11 +76,11 @@ const HomePage = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {recommendedUsers.map((user) => {
-                const hasRequestBeenSent = outgoingRequestsIds.has(user._id);
+                const hasRequestBeenSent = sentRequestIds.has(user.id);
 
                 return (
                   <div
-                    key={user._id}
+                    key={user.id}
                     className="card bg-base-200 hover:shadow-lg transition-all duration-300"
                   >
                     <div className="card-body p-5 space-y-4">
@@ -142,7 +119,7 @@ const HomePage = () => {
                         className={`btn w-full mt-2 ${
                           hasRequestBeenSent ? "btn-disabled" : "btn-primary"
                         } `}
-                        onClick={() => sendRequestMutation(user._id)}
+                        onClick={() => sendRequestMutation(user.id)}
                         disabled={hasRequestBeenSent || isPending}
                       >
                         {hasRequestBeenSent ? (

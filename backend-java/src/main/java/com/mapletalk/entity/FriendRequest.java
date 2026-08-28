@@ -22,7 +22,13 @@ import jakarta.persistence.Table;
 @Table(name = "friend_requests", indexes = {
 		@Index(name = "idx_friend_requests_sender", columnList = "sender_id"),
 		@Index(name = "idx_friend_requests_recipient", columnList = "recipient_id"),
-		@Index(name = "idx_friend_requests_status", columnList = "status")
+		@Index(name = "idx_friend_requests_status", columnList = "status"),
+		// Covers the two hot-path lookups: incoming pending requests
+		// (recipient_id + status), and the duplicate/opposite-direction
+		// pending-request check on every sendRequest call (sender_id +
+		// recipient_id + status, checked in both directions).
+		@Index(name = "idx_friend_requests_recipient_status", columnList = "recipient_id,status"),
+		@Index(name = "idx_friend_requests_sender_recipient_status", columnList = "sender_id,recipient_id,status")
 })
 public class FriendRequest {
 

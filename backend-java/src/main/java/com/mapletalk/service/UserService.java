@@ -76,10 +76,7 @@ public class UserService {
 		excludedIds.add(currentUser.getId());
 
 		for (Friendship friendship : friendshipRepository.findAllInvolvingUser(currentUser.getId())) {
-			Long friendId = friendship.getUserA().getId().equals(currentUser.getId())
-					? friendship.getUserB().getId()
-					: friendship.getUserA().getId();
-			excludedIds.add(friendId);
+			excludedIds.add(friendship.other(currentUser).getId());
 		}
 
 		return userRepository.findByIdNotInAndIsOnboardedTrue(excludedIds).stream()

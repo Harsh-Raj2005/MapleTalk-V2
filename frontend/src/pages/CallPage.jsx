@@ -36,29 +36,41 @@ const CallPage = () => {
   });
 
   useEffect(() => {
+    let cancelled = false;
+    let videoClient = null;
+    let callInstance = null;
+
     const initCall = async () => {
-      if (!tokenData.token || !authUser || !callId) return;
+      if (!tokenData?.token || !authUser || !callId) return;
 
       try {
         console.log("Initializing Stream video client...");
 
         const user = {
-          id: authUser._id,
+          id: String(authUser.id),
           name: authUser.fullName,
           image: authUser.profilePic,
         };
 
-        const videoClient = new StreamVideoClient({
+        videoClient = new StreamVideoClient({
           apiKey: STREAM_API_KEY,
           user,
           token: tokenData.token,
         });
 
-        const callInstance = videoClient.call("default", callId);
+        callInstance = videoClient.call("default", callId);
 
         await callInstance.join({ create: true });
 
         console.log("Joined call successfully");
+
+        // The effect may have been cleaned up (unmount/navigation/auth
+        // change) while join() was in flight.
+        if (cancelled) {
+          await callInstance.leave();
+          await videoClient.disconnectUser();
+          return;
+        }
 
         setClient(videoClient);
         setCall(callInstance);
@@ -66,11 +78,19 @@ const CallPage = () => {
         console.error("Error joining call:", error);
         toast.error("Could not join the call. Please try again.");
       } finally {
-        setIsConnecting(false);
+        if (!cancelled) setIsConnecting(false);
       }
     };
 
     initCall();
+
+    // Leave the call and disconnect on unmount/navigation away/auth change
+    // so logout or leaving the page never leaves a stale joined call behind.
+    return () => {
+      cancelled = true;
+      callInstance?.leave();
+      videoClient?.disconnectUser();
+    };
   }, [tokenData, authUser, callId]);
 
   if (isLoading || isConnecting) return <PageLoader />;

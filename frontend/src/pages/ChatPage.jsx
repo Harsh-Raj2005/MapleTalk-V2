@@ -37,17 +37,22 @@ const ChatPage = () => {
   });
 
   useEffect(() => {
+    let cancelled = false;
+    let client = null;
+
     const initChat = async () => {
       if (!tokenData?.token || !authUser) return;
 
       try {
         console.log("Initializing stream chat client...");
 
-        const client = StreamChat.getInstance(STREAM_API_KEY);
+        client = StreamChat.getInstance(STREAM_API_KEY);
+
+        const myStreamId = String(authUser.id);
 
         await client.connectUser(
           {
-            id: authUser._id,
+            id: myStreamId,
             name: authUser.fullName,
             image: authUser.profilePic,
           },
@@ -55,17 +60,24 @@ const ChatPage = () => {
         );
 
         //
-        const channelId = [authUser._id, targetUserId].sort().join("-");
+        const channelId = [myStreamId, targetUserId].sort().join("-");
 
         // you and me
         // if i start the chat => channelId: [myId, yourId]
         // if you start the chat => channelId: [yourId, myId]  => [myId,yourId]
 
         const currChannel = client.channel("messaging", channelId, {
-          members: [authUser._id, targetUserId],
+          members: [myStreamId, targetUserId],
         });
 
         await currChannel.watch();
+
+        // The effect may have been cleaned up (unmount/navigation/auth
+        // change) while the connect/watch calls above were in flight.
+        if (cancelled) {
+          await client.disconnectUser();
+          return;
+        }
 
         setChatClient(client);
         setChannel(currChannel);
@@ -73,11 +85,18 @@ const ChatPage = () => {
         console.error("Error initializing chat:", error);
         toast.error("Could not connect to chat. Please try again.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     initChat();
+
+    // Disconnect on unmount/navigation away/auth change so logout or
+    // switching chats never leaves a stale connected client behind.
+    return () => {
+      cancelled = true;
+      client?.disconnectUser();
+    };
   }, [tokenData, authUser, targetUserId]);
 
   const handleVideoCall = () => {

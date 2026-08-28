@@ -97,4 +97,9 @@ public class Friendship {
 		return createdAt;
 	}
 
+	/** Given one side of the friendship, returns the other user. */
+	public User other(User user) {
+		return userA.getId().equals(user.getId()) ? userB : userA;
+	}
+
 }
