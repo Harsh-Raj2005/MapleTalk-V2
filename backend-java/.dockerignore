@@ -1,0 +1,9 @@
+# Build output — regenerated inside the image by `mvnw clean package`.
+# Keeps the Docker build context small; mainly affects local image builds,
+# since Render builds from a fresh clone where target/ never exists.
+target/
+
+# Local IDE/editor state — never needed to build the jar.
+.idea/
+.vscode/
+*.iml
