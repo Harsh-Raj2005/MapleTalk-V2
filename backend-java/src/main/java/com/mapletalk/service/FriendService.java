@@ -1,6 +1,8 @@
 package com.mapletalk.service;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -21,6 +23,8 @@ import com.mapletalk.exception.FriendRequestAlreadyProcessedException;
 import com.mapletalk.exception.FriendRequestNotFoundException;
 import com.mapletalk.exception.NotRequestRecipientException;
 import com.mapletalk.exception.UserNotFoundException;
+import com.mapletalk.kafka.FriendshipEvent;
+import com.mapletalk.kafka.FriendshipEventProducer;
 import com.mapletalk.repository.FriendRequestRepository;
 import com.mapletalk.repository.FriendshipRepository;
 import com.mapletalk.repository.UserRepository;
@@ -39,14 +43,20 @@ public class FriendService {
 	private final UserRepository userRepository;
 	private final FriendRequestRepository friendRequestRepository;
 	private final FriendshipRepository friendshipRepository;
+	// Optional: the producer bean doesn't exist at all when kafka.enabled=false
+	// (the test profile) — Optional<> lets Spring inject Optional.empty()
+	// instead of failing the whole application context at startup.
+	private final Optional<FriendshipEventProducer> friendshipEventProducer;
 
 	public FriendService(
 			UserRepository userRepository,
 			FriendRequestRepository friendRequestRepository,
-			FriendshipRepository friendshipRepository) {
+			FriendshipRepository friendshipRepository,
+			Optional<FriendshipEventProducer> friendshipEventProducer) {
 		this.userRepository = userRepository;
 		this.friendRequestRepository = friendRequestRepository;
 		this.friendshipRepository = friendshipRepository;
+		this.friendshipEventProducer = friendshipEventProducer;
 	}
 
 	@Transactional
@@ -94,15 +104,27 @@ public class FriendService {
 		friendRequestRepository.saveAndFlush(request);
 
 		try {
-			friendshipRepository.saveAndFlush(Friendship.between(request.getSender(), request.getRecipient()));
+			Friendship friendship = friendshipRepository.saveAndFlush(
+					Friendship.between(request.getSender(), request.getRecipient()));
+			publishFriendshipCreated(friendship);
 		} catch (DataIntegrityViolationException alreadyFriends) {
 			// The unique/canonical-pair constraint caught a race where the
 			// friendship already exists — the desired end state (they are
-			// friends) already holds, so this is not a failure.
+			// friends) already holds, so this is not a failure. No event is
+			// published here: the friendship wasn't newly created by this
+			// call, a concurrent request already handled that.
 			log.debug("Friendship already existed when accepting request [requestId={}]", requestId);
 		}
 
 		return FriendRequestResponse.from(request);
+	}
+
+	private void publishFriendshipCreated(Friendship friendship) {
+		friendshipEventProducer.ifPresent(producer -> producer.publish(new FriendshipEvent(
+				friendship.getId(),
+				friendship.getUserA().getId(),
+				friendship.getUserB().getId(),
+				Instant.now())));
 	}
 
 	@Transactional

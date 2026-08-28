@@ -2,12 +2,16 @@ package com.mapletalk.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 
 import com.mapletalk.dto.FriendRequestResponse;
 import com.mapletalk.dto.UserResponse;
@@ -18,6 +22,8 @@ import com.mapletalk.exception.DuplicateFriendRequestException;
 import com.mapletalk.exception.FriendRequestAlreadyProcessedException;
 import com.mapletalk.exception.NotRequestRecipientException;
 import com.mapletalk.exception.UserNotFoundException;
+import com.mapletalk.kafka.FriendshipEvent;
+import com.mapletalk.kafka.FriendshipEventProducer;
 import com.mapletalk.repository.FriendshipRepository;
 import com.mapletalk.repository.UserRepository;
 
@@ -34,6 +40,13 @@ class FriendServiceTest {
 
 	@Autowired
 	private FriendshipRepository friendshipRepository;
+
+	// kafka.enabled=false in the test profile means the real
+	// FriendshipEventProducer bean doesn't exist at all; @MockBean adds a
+	// mock in its place regardless, so FriendService's
+	// Optional<FriendshipEventProducer> resolves to Optional.of(mock).
+	@MockBean
+	private FriendshipEventProducer friendshipEventProducer;
 
 	private User user(String email) {
 		return userRepository.saveAndFlush(new User("Fixture " + email, email, "irrelevant-hash"));
@@ -134,6 +147,17 @@ class FriendServiceTest {
 
 		assertThat(accepted.status()).isEqualTo(FriendRequestStatus.ACCEPTED);
 		assertThat(friendshipRepository.existsBetweenUsers(alice.getId(), bob.getId())).isTrue();
+	}
+
+	@Test
+	void acceptingRequestPublishesFriendshipEvent() {
+		User alice = user("fr.alice-kafka@example.com");
+		User bob = user("fr.bob-kafka@example.com");
+		FriendRequestResponse request = friendService.sendRequest(alice.getEmail(), bob.getId());
+
+		friendService.acceptRequest(bob.getEmail(), request.id());
+
+		verify(friendshipEventProducer, times(1)).publish(any(FriendshipEvent.class));
 	}
 
 	@Test
